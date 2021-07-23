@@ -1,96 +1,58 @@
-from __future__ import print_function # Python 2/3 compatibility
-import cv2 # Import the OpenCV library
-import numpy as np # Import Numpy library
- 
-def main():
-    """
-    Main method of the program.
-    """
- 
-    # Create a VideoCapture object
-    cap = cv2.VideoCapture(0)
- 
-    # Create the background subtractor object
-    # Use the last 700 video frames to build the background
-    back_sub = cv2.createBackgroundSubtractorMOG2(history=700, 
-        varThreshold=25, detectShadows=True)
- 
-    # Create kernel for morphological operation
-    # You can tweak the dimensions of the kernel
-    # e.g. instead of 20,20 you can try 30,30.
-    kernel = np.ones((20,20),np.uint8)
- 
-    while(True):
- 
-        # Capture frame-by-frame
-        # This method returns True/False as well
-        # as the video frame.
-        ret, frame = cap.read()
- 
-        # Use every frame to calculate the foreground mask and update
-        # the background
-        fg_mask = back_sub.apply(frame)
- 
-        # Close dark gaps in foreground object using closing
-        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
- 
-        # Remove salt and pepper noise with a median filter
-        fg_mask = cv2.medianBlur(fg_mask, 5) 
-         
-        # Threshold the image to make it either black or white
-        _, fg_mask = cv2.threshold(fg_mask,127,255,cv2.THRESH_BINARY)
- 
-        # Find the index of the largest contour and draw bounding box
-        fg_mask_bb = fg_mask
-        contours, hierarchy = cv2.findContours(fg_mask_bb,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[-2:]
-        areas = [cv2.contourArea(c) for c in contours]
- 
-        # If there are no countours
-        if len(areas) < 1:
- 
-            # Display the resulting frame
-            cv2.imshow('frame',frame)
- 
-            # If "q" is pressed on the keyboard, 
-            # exit this loop
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
- 
-            # Go to the top of the while loop
-            continue
- 
-        else:
-            # Find the largest moving object in the image
-            max_index = np.argmax(areas)
- 
-        # Draw the bounding box
-        cnt = contours[max_index]
-        x,y,w,h = cv2.boundingRect(cnt)
-        cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),3)
- 
-        # Draw circle in the center of the bounding box
-        x2 = x + int(w/2)
-        y2 = y + int(h/2)
-        cv2.circle(frame,(x2,y2),4,(0,255,0),-1)
- 
-        # Print the centroid coordinates (we'll use the center of the
-        # bounding box) on the image
-        text = "x: " + str(x2) + ", y: " + str(y2)
-        cv2.putText(frame, text, (x2 - 10, y2 - 10),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-         
-        # Display the resulting frame
-        cv2.imshow('frame',frame)
- 
-        # If "q" is pressed on the keyboard, 
-        # exit this loop
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
- 
-    # Close down the video stream
-    cap.release()
-    cv2.destroyAllWindows()
- 
-if __name__ == '__main__':
-    print(__doc__)
-    main()
+from __future__ import print_function
+import cv2 as cv
+import argparse
+
+
+def detectAndDisplay(frame):
+    frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    frame_gray = cv.equalizeHist(frame_gray)
+    # -- Detect faces
+    faces = face_cascade.detectMultiScale(frame_gray)
+    for (x, y, w, h) in faces:
+        center = (x + w//2, y + h//2)
+        frame = cv.ellipse(frame, center, (w//2, h//2),
+                           0, 0, 360, (255, 0, 255), 4)
+        faceROI = frame_gray[y:y+h, x:x+w]
+        # -- In each face, detect eyes
+        eyes = eyes_cascade.detectMultiScale(faceROI)
+        for (x2, y2, w2, h2) in eyes:
+            eye_center = (x + x2 + w2//2, y + y2 + h2//2)
+            radius = int(round((w2 + h2)*0.25))
+            frame = cv.circle(frame, eye_center, radius, (255, 0, 0), 4)
+    cv.imshow('Capture - Face detection', frame)
+
+
+parser = argparse.ArgumentParser(
+    description='Code for Cascade Path.')
+parser.add_argument('--face_cascade', help='Path to face cascade.',
+                    default='C:\PythonVSCode\Car-Game\haarcascades\haarcascade_frontalface_alt.xml')
+parser.add_argument('--eyes_cascade', help='Path to eyes cascade.',
+                    default='C:\PythonVSCode\Car-Game\haarcascades\haarcascade_eye_tree_eyeglasses.xml')
+parser.add_argument(
+    '--camera', help='Camera divide number.', type=int, default=0)
+args = parser.parse_args()
+face_cascade_name = args.face_cascade
+eyes_cascade_name = args.eyes_cascade
+face_cascade = cv.CascadeClassifier()
+eyes_cascade = cv.CascadeClassifier()
+# -- 1. Load the cascades
+if not face_cascade.load(cv.samples.findFile(face_cascade_name)):
+    print('--(!)Error loading face cascade')
+    exit(0)
+if not eyes_cascade.load(cv.samples.findFile(eyes_cascade_name)):
+    print('--(!)Error loading eyes cascade')
+    exit(0)
+camera_device = args.camera
+# -- 2. Read the video stream
+cap = cv.VideoCapture(camera_device)
+if not cap.isOpened:
+    print('--(!)Error opening video capture')
+    exit(0)
+while True:
+    ret, frame = cap.read()
+    if frame is None:
+        print('--(!) No captured frame -- Break!')
+        break
+    detectAndDisplay(frame)
+    if cv.waitKey(10) == 27:
+        break
